@@ -1,0 +1,280 @@
+import haxe.Exception;
+
+class TokenParseCxt
+{
+    public var Begin:Int = -1;
+    public var End:Int = -1;
+    private var TmpEnd:Int = -1;
+	private var Value:Float = Math.NaN;
+	private var Pure:Bool = true;
+    
+    public function valid():Bool {
+        return Begin >= 0 && End >= 0 && End >= Begin; 
+    }
+    public function tryParse(str:String):Null<Float> {
+		 if(!Math.isNaN(Value))
+            return Value;
+        var s = subStr(str);
+        var v = Std.parseFloat(s);
+        if(Math.isNaN(v))
+            return null;
+		Value = v;
+        return v;
+    }
+    public function subStr(str:String):String {
+        return StringTools.trim(str.substr(Begin,End - Begin + 1));
+    }
+    public function new() {
+        Begin = -1;
+        End = -1;    
+    }
+	public static function fromValue(v:Float):TokenParseCxt {
+		var res = new TokenParseCxt();
+        res.Begin = -1;
+        res.End = -1;    
+		res.Value = v;
+		return res;
+    }
+    public function begin(v:Int)
+    {
+        Begin = v;
+        TmpEnd = v;
+    }
+    public function Append(c:Int) {
+		if (!IsNumChar(c))
+			Pure = false;
+        TmpEnd +=1 ;
+    }
+	public function IsNumChar(c:Int):Bool
+	{
+		return (c >= 48 && c <= 57) || c == 46 || c ==  32;
+	}
+    public function end()
+    {
+        if(isBegin() && !isEnd())
+        {
+            End = TmpEnd;
+            TmpEnd = -1;
+        }
+    }
+    public function isBegin():Bool
+    {
+        return Begin > -1;
+    }
+    public function isEnd():Bool {
+        return End > -1;
+    }
+	public function IsPure():Bool
+	{
+		return Pure;
+	}
+	public function size():Int
+	{
+		return End - Begin + 1;
+	}
+}
+
+enum EAction{
+    Ignore;
+    Append;
+    Begin;
+    End;
+}
+
+class Main{
+
+    static function main()
+    {
+        while(true)
+        {
+            var userInput = Sys.stdin().readLine();
+            if(userInput == "exit")
+                break;
+            var v = 0.0;
+            try {
+                v = calc(StringTools.trim(userInput));
+            }catch(e:haxe.Exception)
+            {
+                Sys.stdout().writeString('Parse failed msg = ${e.message}\n');
+			    Sys.stdout().flush();
+                continue;
+            }
+			Sys.stdout().writeString('${v}\n');
+			Sys.stdout().flush();
+        }
+    }
+
+    static function unwrap<T>(t:Null<T>):T {
+        switch t 
+        {
+            case v : return v;
+            case null : throw new Exception('Is Null');
+        }
+    }
+    
+    static function GetOpPriority(op:Int):Int {
+        switch (op)
+        {
+            case 42|47 : return 1;
+            case 43|45 : return 2; 
+        }
+        return -1;
+    }
+    static function AddAndBegin(parseList:Array<TokenParseCxt>,i:Int) {
+        if(parseList.length > 0 && !parseList[parseList.length - 1].isEnd())
+            parseList.pop();
+        var v = new TokenParseCxt();
+        v.begin(i);
+        parseList.push(v);
+    }
+    static function TryEndLast(parseList:Array<TokenParseCxt>) {
+        if(parseList.length > 0 && !parseList[parseList.length - 1].isEnd())
+        {
+            parseList[parseList.length - 1].end();
+        }
+    }
+	static function combine(b:Int, e:Int, arr:Array<TokenParseCxt>):TokenParseCxt
+	{
+		if (b == e) return arr[b];
+		var v = new TokenParseCxt();
+		v.Begin = arr[b].Begin;
+		v.End = arr[e].End;
+		return v;
+	}
+	static public function IsNumChar(c:Int):Bool
+	{
+		return (c >= 48 && c <= 57) || c == 46 ;
+	}
+	static function calcWithOp(a:Float,b:Float,op:Int):Float
+	{
+		switch(op)
+		{
+			case 42: return a * b;
+			case 47: return a / b;
+			case 43: return a + b;
+			case 45: return a - b;
+		}
+		return 0.0;
+	}
+	static function calc(str:String):Float {
+        var parseList:Array<TokenParseCxt> = new Array<TokenParseCxt>();
+        var state:Int = 0;
+        var parenState:Int = 0;
+        var op:Int = -1;
+        var opPos:Int = -1;
+        var opPriority:Int = -1;
+        var action:EAction = Ignore;
+        var nextAction:EAction = Ignore;
+        trace(str);
+        for(i in 0...str.length)
+        {
+            var c = unwrap(str.charCodeAt(i));
+            if(nextAction == Begin)
+            {
+                action = nextAction;
+                nextAction = Ignore;
+            }
+            trace('${c}');
+            if(c == 40) // (
+            {
+                parenState += 1;
+				if (parenState == 1)
+				{
+					action = Ignore;
+					nextAction = Begin;
+				}
+            }else if(c == 41) // )
+            {
+                parenState -= 1;
+                if(parenState == 0)
+                {
+                    action = End;   
+                }
+            }else if(parenState == 0 && (c == 42 || c == 47 || c == 43 || c == 45)) // *  / + - 
+            {
+                var priority = GetOpPriority(c);
+                if(priority > opPriority)
+                {
+                    opPriority = priority;
+                    op = c;
+                    opPos = i;
+                }
+				if(action == Append)
+					action = End;
+            }
+            if(action == Begin)
+            {
+                AddAndBegin(parseList,i);
+                action = Append;
+            }else if(action == End)
+            {
+                if (parseList.length == 0)
+				{
+					if (c != 45)
+						throw new Exception("Parse failed 1");
+					
+				}else if(parseList[parseList.length - 1].isEnd())
+                {
+					throw new Exception("Parse failed 5");
+				}
+                parseList[parseList.length - 1].end();
+                action = Ignore;
+            }else if(action == Append)
+            {
+                if(parseList.length == 0 || parseList[parseList.length - 1].isEnd())
+                    throw new Exception("Parse failed 2");
+                parseList[parseList.length - 1].Append(c);
+            }else if (IsNumChar(c)){
+				AddAndBegin(parseList, i);
+				action = Append;
+			}
+        }
+        TryEndLast(parseList);
+		if (opPos < 0 || opPos >= str.length)
+		{
+			if (parseList.length == 1 && parseList[0].isEnd() && parseList[0].size() < str.length)
+			{
+				if (parseList[0].IsPure())
+					return parseList[0].tryParse(str);
+				else
+					return calc(parseList[0].subStr(str));
+			}
+			throw new Exception("Parse failed 3");
+		}
+		if (parseList.length < 2)
+			throw new Exception("Parse failed 4");
+		
+		var mid:Int = -1;
+		 
+		for (j in 0...parseList.length)
+		{
+			if (parseList[j].Begin > opPos)
+			{
+				mid = j;
+				break;
+			}
+		}
+		if (mid < 0 || mid >= parseList.length)
+			throw new Exception("Parse failed 6");
+		var leftCount:Int = mid;
+		var rightCount:Int = parseList.length - mid;
+		var left = null;
+		var right = null;
+		var leftToken:String = null;
+		var rightToken:String = null;
+		if (mid == 0 && (op == 43 || op == 45))
+			left = 0.0;
+		trace('${mid}  ${leftCount}  ${rightCount}');
+		if (leftCount == 1 && parseList[mid - 1].IsPure())
+			left = parseList[mid - 1].tryParse(str);
+		else
+			leftToken = StringTools.trim(str.substr(0,opPos));
+		if (rightCount == 1 && parseList[mid].IsPure())
+			right = parseList[mid].tryParse(str);
+		else
+			rightToken = StringTools.trim(str.substr(opPos + 1));
+		
+			
+		return calcWithOp(left == null ? calc(leftToken) : left , right == null ? calc(rightToken) : right , op);
+	}
+}
