@@ -6,7 +6,7 @@ class TokenParseCxt
     public var End:Int = -1;
     private var TmpEnd:Int = -1;
 	private var Value:Float = Math.NaN;
-	private var Pure:Bool = true;
+	private var Pure:Bool = false;
     
     public function valid():Bool {
         return Begin >= 0 && End >= 0 && End >= Begin; 
@@ -39,6 +39,7 @@ class TokenParseCxt
     {
         Begin = v;
         TmpEnd = v;
+        Pure = true;
     }
     public function Append(c:Int) {
 		if (!IsNumChar(c))
@@ -79,6 +80,15 @@ enum EAction{
     Append;
     Begin;
     End;
+}
+
+class OpData{
+    public var Op:Int;
+    public var OpPos:Int;
+    public function new(op:Int,pos:Int) {
+        Op = op;
+        OpPos = pos;
+    }
 }
 
 class Main{
@@ -133,13 +143,25 @@ class Main{
             parseList[parseList.length - 1].end();
         }
     }
-	static function combine(b:Int, e:Int, arr:Array<TokenParseCxt>):TokenParseCxt
+	static function combine(b:Int, e:Int, arr:Array<TokenParseCxt>): {t:TokenParseCxt,count:Int}
 	{
-		if (b == e) return arr[b];
-		var v = new TokenParseCxt();
-		v.Begin = arr[b].Begin;
-		v.End = arr[e].End;
-		return v;
+        var s:Int = -1;
+        var end:Int = -1;
+		for(i in 0...arr.length)
+        {
+            if(s == -1 && arr[i].Begin > b)
+                s = i;
+            if(arr[i].End < e)
+                end = i;
+            if(arr[i].Begin > e)
+                break;
+        }
+        if(s == end && s != -1)
+            return { t: arr[s],count : 1};
+        var res = new TokenParseCxt();
+        res.Begin = arr[s].Begin;
+        res.End = arr[end].End;
+		return { t:res,count:end - s + 1};
 	}
 	static public function IsNumChar(c:Int):Bool
 	{
@@ -158,10 +180,9 @@ class Main{
 	}
 	static function calc(str:String):Float {
         var parseList:Array<TokenParseCxt> = new Array<TokenParseCxt>();
-        var state:Int = 0;
         var parenState:Int = 0;
         var op:Int = -1;
-        var opPos:Int = -1;
+        var opPos:Array<OpData> = new Array<OpData>();
         var opPriority:Int = -1;
         var action:EAction = Ignore;
         var nextAction:EAction = Ignore;
@@ -174,7 +195,7 @@ class Main{
                 action = nextAction;
                 nextAction = Ignore;
             }
-            trace('${c}');
+            //trace('${c}');
             if(c == 40) // (
             {
                 parenState += 1;
@@ -193,11 +214,12 @@ class Main{
             }else if(parenState == 0 && (c == 42 || c == 47 || c == 43 || c == 45)) // *  / + - 
             {
                 var priority = GetOpPriority(c);
-                if(priority > opPriority)
+                if(priority >= opPriority)
                 {
+                    if(priority > opPriority)
+                        opPos.resize(0);
                     opPriority = priority;
-                    op = c;
-                    opPos = i;
+                    opPos.push(new OpData(c,i));
                 }
 				if(action == Append)
 					action = End;
@@ -230,7 +252,7 @@ class Main{
 			}
         }
         TryEndLast(parseList);
-		if (opPos < 0 || opPos >= str.length)
+		if (opPos.length == 0)
 		{
 			if (parseList.length == 1 && parseList[0].isEnd() && parseList[0].size() < str.length)
 			{
@@ -245,36 +267,71 @@ class Main{
 			throw new Exception("Parse failed 4");
 		
 		var mid:Int = -1;
+
+        var b:Int = -1;
+        var res:Float = 0.0;
+        var count:Int = 0;
+        op = 43;
+        for(j in 0...opPos.length)
+        {
+            var val = null;
+            var valToken:String = null;
+            var token = null;
+			var ret = combine(b, opPos[j].OpPos, parseList);
+			token = ret.t;
+			count = ret.count;
+            if(count == 1 && token.IsPure())
+                val = token.tryParse(str);
+            else
+                valToken = token.subStr(str);
+            res = calcWithOp(res, val == null ? calc(valToken) : val, op);
+			b = opPos[j].OpPos;
+			op = opPos[j].Op;
+        }
+		
+		var val = null;
+        var valToken:String = null;
+        var token = null;
+		var ret = combine(b, str.length, parseList);
+		token = ret.t;
+		count = ret.count;
+        if(count == 1 && token.IsPure())
+            val = token.tryParse(str);
+        else
+            valToken = token.subStr(str);
+        res = calcWithOp(res, val == null ? calc(valToken) : val, op);
+
+        return res;
 		 
-		for (j in 0...parseList.length)
-		{
-			if (parseList[j].Begin > opPos)
-			{
-				mid = j;
-				break;
-			}
-		}
-		if (mid < 0 || mid >= parseList.length)
-			throw new Exception("Parse failed 6");
-		var leftCount:Int = mid;
-		var rightCount:Int = parseList.length - mid;
-		var left = null;
-		var right = null;
-		var leftToken:String = null;
-		var rightToken:String = null;
-		if (mid == 0 && (op == 43 || op == 45))
-			left = 0.0;
-		trace('${mid}  ${leftCount}  ${rightCount}');
-		if (leftCount == 1 && parseList[mid - 1].IsPure())
-			left = parseList[mid - 1].tryParse(str);
-		else
-			leftToken = StringTools.trim(str.substr(0,opPos));
-		if (rightCount == 1 && parseList[mid].IsPure())
-			right = parseList[mid].tryParse(str);
-		else
-			rightToken = StringTools.trim(str.substr(opPos + 1));
+		// for (j in 0...parseList.length)
+		// {
+		// 	if (parseList[j].Begin > opPos)
+		// 	{
+		// 		mid = j;
+		// 		break;
+		// 	}
+		// }
+		// if (mid < 0 || mid >= parseList.length)
+		// 	throw new Exception("Parse failed 6");
+		// var leftCount:Int = mid;
+		// var rightCount:Int = parseList.length - mid;
+		// var left = null;
+		// var right = null;
+		// var leftToken:String = null;
+		// var rightToken:String = null;
+		// if (mid == 0 && (op == 43 || op == 45))
+		// 	left = 0.0;
+		// //trace('${mid}  ${leftCount}  ${rightCount}');
+		// if (leftCount == 1 && parseList[mid - 1].IsPure())
+		// 	left = parseList[mid - 1].tryParse(str);
+		// else
+		// 	leftToken = StringTools.trim(str.substr(0,opPos));
+		// if (rightCount == 1 && parseList[mid].IsPure())
+		// 	right = parseList[mid].tryParse(str);
+		// else
+		// 	rightToken = StringTools.trim(str.substr(opPos + 1));
 		
 			
-		return calcWithOp(left == null ? calc(leftToken) : left , right == null ? calc(rightToken) : right , op);
+		// return calcWithOp(left == null ? calc(leftToken) : left , right == null ? calc(rightToken) : right , op);
 	}
 }
