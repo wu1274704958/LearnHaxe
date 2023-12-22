@@ -156,6 +156,8 @@ class Main{
             if(arr[i].Begin > e)
                 break;
         }
+        if (s == -1 || end == -1)
+			return null;
         if(s == end && s != -1)
             return { t: arr[s],count : 1};
         var res = new TokenParseCxt();
@@ -277,16 +279,22 @@ class Main{
             var val = null;
             var valToken:String = null;
             var token = null;
-			var ret = combine(b, opPos[j].OpPos, parseList);
-			token = ret.t;
-			count = ret.count;
+            var ret = combine(b, opPos[j].OpPos, parseList);
+            if (ret == null && opPos[j].Op == 45)
+            {
+                b = opPos[j].OpPos;
+                op = opPos[j].Op;
+                continue;
+            }
+            token = ret.t;
+            count = ret.count;
             if(count == 1 && token.IsPure())
                 val = token.tryParse(str);
             else
                 valToken = token.subStr(str);
             res = calcWithOp(res, val == null ? calc(valToken) : val, op);
-			b = opPos[j].OpPos;
-			op = opPos[j].Op;
+            b = opPos[j].OpPos;
+            op = opPos[j].Op;
         }
 		
 		var val = null;
